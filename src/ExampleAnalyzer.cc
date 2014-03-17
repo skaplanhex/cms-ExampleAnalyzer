@@ -29,6 +29,17 @@
 #include "FWCore/Framework/interface/MakerMacros.h"
 
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
+
+//you need the TFileService in order to make plots
+#include "FWCore/ServiceRegistry/interface/Service.h"
+#include "CommonTools/UtilAlgos/interface/TFileService.h"
+//for reco::Candidate
+#include "DataFormats/Candidate/interface/Candidate.h"
+#include "DataFormats/Candidate/interface/CandidateFwd.h"
+//for the GenParticleCollection and GenParticles
+#include "DataFormats/HepMCCandidate/interface/GenParticle.h"
+#include "DataFormats/HepMCCandidate/interface/GenParticleFwd.h"
+#include <vector>
 //
 // class declaration
 //
@@ -52,6 +63,18 @@ class ExampleAnalyzer : public edm::EDAnalyzer {
       virtual void endLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&);
 
       // ----------member data ---------------------------
+      //the TFileService object
+      edm::Service<TFileService> fs;
+      //the handle which will be holding the genParticles from the event.  Don't confuse this with the particles InputTag!  These are two different things.  reco::GenParticleCollection is just a typedef for std::vector< reco::GenParticle >.
+      edm::Handle< reco::GenParticleCollection > particles;
+      //this object represents the InputTag that is passed to the analyzer in the config file
+      edm::InputTag particles_;
+      //declaration of a few histograms that we'll fill
+      TH1D* higgsPt;
+      TH1D* higgsEta;
+      TH1D* higgsPhi;
+      TH1D* higgsCount;
+      TH1D* higgsStatus;
 };
 
 //
@@ -68,7 +91,8 @@ class ExampleAnalyzer : public edm::EDAnalyzer {
 ExampleAnalyzer::ExampleAnalyzer(const edm::ParameterSet& iConfig)
 
 {
-   //now do what ever initialization is needed
+  //This line looks at the paramater set that is passed to the analyzer via the config file.  The particles_ object will represent whatever is passed to the particles variable in the config file (in our case, the genParticles).
+  particles_ = iConfig.getParameter<edm::InputTag>("particles");
 
 }
 
@@ -91,18 +115,26 @@ void
 ExampleAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 {
    using namespace edm;
+   //particles_ is the InputTag object.  Look at the constructor for how it was initialized.  This line says to look in the event for the object with the InputTag that particles_ represents (in our case, the genParticles) and copy the content to the particles edm::Handle.  We can then do whatever we want with the particles!
+   iEvent.getByLabel(particles_,particles);
+   int higgsCounter = 0;
+   for (reco::GenParticleCollection::const_iterator iParticle = particles->begin(); iParticle != particles->end(); ++iParticle){
+    //only want to look at higgs bosons, so we will cut on pdgid (for higgs, this is 25)
+    //only look at status 3 higgs
+    if ( (iParticle->pdgId() != 25) || (iParticle->status() != 3) ) continue;
+    //increase higgs counter
+    higgsCounter++;
+    //fill histograms with phi, eta, and pt.  Note that the reco::GenParticle class inherits from reco::Candidate where these methods are defined.  All of the reco jet classes inherit from this class as well.
+    higgsPhi->Fill( iParticle->phi() );
+    higgsEta->Fill( iParticle->eta() );
+    higgsPt->Fill( iParticle->pt() );
+    higgsStatus->Fill( iParticle->status() );
+
+   }
+   //only fill this after the particle loop so we know how many higgs bosons were analyzed after the whole loop
+   higgsCount->Fill(higgsCounter);
 
 
-
-#ifdef THIS_IS_AN_EVENT_EXAMPLE
-   Handle<ExampleData> pIn;
-   iEvent.getByLabel("example",pIn);
-#endif
-   
-#ifdef THIS_IS_AN_EVENTSETUP_EXAMPLE
-   ESHandle<SetupData> pSetup;
-   iSetup.get<SetupRecord>().get(pSetup);
-#endif
 }
 
 
@@ -110,6 +142,12 @@ ExampleAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup
 void 
 ExampleAnalyzer::beginJob()
 {
+  //these lines book our histograms.  Look at http://root.cern.ch/root/html/TH1.html for the constructors.  Unlike regular ROOT macros, when using CMSSW, the histogram booking must be done through the TFileService object!
+  higgsPhi = fs->make<TH1D>("higgsPhi","Higgs Phi",150,0,3.141593);
+  higgsEta = fs->make<TH1D>("higgsEta","Higgs Eta",600,-6,6);
+  higgsPt = fs->make<TH1D>("higgsPt", "Higgs pT",1200,0,1200);
+  higgsStatus = fs->make<TH1D>("higgsStatus", "Higgs Status",4,-0.5,3.5);
+  higgsCount = fs->make<TH1D>("higgsCount", "Number Of Higgs Bosons Per Event",4,-0.5,3.5);
 }
 
 // ------------ method called once each job just after ending the event loop  ------------
